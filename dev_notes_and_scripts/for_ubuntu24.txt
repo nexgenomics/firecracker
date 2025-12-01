@@ -1,0 +1,63 @@
+
+FOR building a ubuntu image that runs in firecracker.
+This is a little obsolete, see also setup_lite.sh
+
+
+
+[leaves it running; do stuff then exit]
+docker run --name ub -it ubuntu:24.04 /bin/bash
+
+[if needed for more stuff:]
+docker start ub
+docker exec -it ub /bin/bash
+
+[finally]
+docker kill ub
+docker rm ub
+
+
+
+echo "tzdata tzdata/Areas select Etc" | debconf-set-selections
+echo "tzdata tzdata/Zones/Etc select UTC" | debconf-set-selections
+apt update
+DEBIAN_FRONTEND=noninteractive apt install -y systemd systemd-sysv dbus udev
+
+apt install -y iproute2 iputils-ping telnet netcat-openbsd vim
+
+echo "root:root" | chpasswd
+
+
+[from outside the container:]
+docker cp setup_lite.sh ub:/tmp
+
+[avoid the rest of this, the firecrackers don't need internet access
+and we will set up their internal networking through config]
+
+#docker cp fcnet.service ub:/etc/systemd/system
+#docker cp fcnet-setup.sh ub:/usr/local/bin
+
+[then back inside the container:]
+/tmp/setup_lite.sh
+#chown root:root /etc/systemd/system/fcnet.service
+#chown root:root /usr/local/bin/fcnet-setup.sh
+#chmod +x /usr/local/bin/fcnet-setup.sh
+#systemctl enable fcnet.service ### MAY NOT WORK due to error with sshd.service
+#ln -s /etc/systemd/system/fcnet.service /etc/systemd/system/multi-user.target.wants/fcnet.service
+
+#echo "nameserver 8.8.8.8" > /etc/resolv.conf
+#echo "127.0.0.1 localhost" > /etc/hosts
+
+[...other config here, then:]
+exit
+
+[on the host:]
+docker kill ub
+docker export ub > ub.tar
+mkdir ub
+tar xf ub.tar -C ub
+sudo mke2fs -t ext4 -L ub -d ub -E lazy_itable_init=0,lazy_journal_init=0,packed_meta_blocks=1 ub.ext4 2G
+
+[that leaves ub.ext4 which can be mounted as a firecracker rootfs]
+
+
+

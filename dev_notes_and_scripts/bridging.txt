@@ -1,0 +1,206 @@
+
+## FOR setting up bridges and taps on a firecracker host
+
+This method keeps the main network interface out of the bridge
+and uses masquerading so the guests all appear on the LAN with the
+MAC address of the main interface.
+It depends on forwarding between the bridge and the hardware NIC.
+
+It does NOT depend on enslaving the NIC to the bridge. *DO NOT* take
+the advice that is out there to enslave the NIC to the bridge.
+
+### The bridge
+
+We put a /16 subnet on the bridge to enable a target of up to 1000 guests.
+
+ip link add fire0 type bridge
+ip addr add 10.0.0.1/16 dev fire0
+ip link set fire0 up
+
+Even better, put this in the netplan file under network:
+  bridges:
+    fire0:
+      parameters:
+        stp: false
+        forward-delay: 0
+      addresses:
+      - 10.0.0.1/16
+
+
+### Forwarding needed
+
+sysctl -w net.ipv4.ip_forward=1
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+
+
+# replace eno1 with the real interface on the host
+iptables -t nat -A POSTROUTING -o eno1 -s 10.1.1.0/16 -j MASQUERADE
+
+# And make sure that forwarding is enabled on iptables. Something like:
+iptables -A FORWARD -i fire0 -o eno1 -j ACCEPT
+iptables -A FORWARD -i eno1 -o fire0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+# although that may already be set up by default policy on the machine,
+# especially if docker was installed. Ie, -A FORWARD policy may already be ACCEPT.
+
+
+Or even better, add the following to /etc/nftables.conf (the second stanza firewalls
+the guests away from each other):
+
+table ip for_firecracker {
+	chain forward {
+		type filter hook forward priority filter + 10; policy drop;
+		iifname "fire0" oifname "eno1" accept
+		iifname "eno1" oifname "fire0" accept
+	}
+
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname "eno1" ip saddr 10.0.0.0/16 masquerade
+	}
+}
+table bridge for_firecracker_br {
+	chain forward {
+		table filter hook forward priority 0; policy accept;
+		iifname "tap*" oifname "tap*" drop
+	}
+}
+
+
+This takes the place of all the iptables stuff.
+
+Now the big problem with this nftables setup is invoking it on system startup.
+Nftables.service does not default to enabled on Ubuntu, but we can't just enable it
+because systemctl will run it after the sysinit.target. The fire0 bridge may not
+yet have been created by netplan at that time (or something else is wrong), but
+the forwarding rules just don't seem to "take."
+It also doesn't work to move nftables.service to the multi-user.target.
+The solution which does seem to work is to add a line to the bottom of the
+script (below) that creates the tap interfaces for the firecracker guests.
+That script does run under systemd, and it DOES wait for the bridge to be set up.
+Also, there doesn't seem to be any problem with invoking systemctl start from within
+a script that was invoked by systemd. So that's the answer.
+
+
+### Kvm
+
+Since we want to run firecracker as an unprivileged user, ensure the unpriv
+user is part of the kvm group:
+```
+sudo usermod -aG kvm francis
+```
+and then restart the shell.
+
+
+### Taps
+
+# create a tap for each guest. for guest #100:
+ip tuntap add tap100 mode tap user francis
+ip link set tap100 master fire0
+ip link set tap100 up
+
+Making the taps owned by an unpriv user allows firecracker to run unpriv! 😊
+
+
+in each firecracker guest config (this example is for guest 100,
+and each MAC must be unique. For convenience, map the ip address
+to the MAC as shown below).
+
+"network-interfaces":[
+	{
+		"iface_id":"eth0",
+		"host_dev_name": "tap100",
+		"guest_mac": "02:FC:00:00:00:64"
+	}
+]
+
+
+
+Inside the guest (but this should be done by a startup script):
+
+ip addr add 10.1.1.100/16 dev eth0
+ip link set eth0 up
+ip ro add default via 10.1.1.1
+
+
+
+
+# Automatically install taps via systemd
+
+/etc/systemd/system/firecracker_taps.service:
+
+[Unit]
+Description=Create persistent Firecracker TAP devices
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/home/francis/FIRECRACKER/create_taps.sh
+
+[Install]
+WantedBy=multi-user.target
+
+(and systemctl enable it)
+The create_taps script inserts a wait loop to make sure
+the bridge exists before adding the taps. It also
+starts nftables to make sure we have the right forwarding setup.
+
+/home/francis/FIRECRACKER/create_taps.sh:
+```
+#!/bin/bash
+# /usr/local/bin/create-firecracker-taps.sh
+for try in {1..30}; do
+    [[ -d /sys/class/net/fire0 ]] && break
+    echo "Waiting for fire0 to appear ($try/30)..."
+    sleep 1
+done
+
+[[ ! -d /sys/class/net/fire0 ]] && { echo "fire0 never appeared"; exit 1; }
+
+for i in {100..199}; do
+    ip tuntap add dev tap$i mode tap user francis 2>/dev/null || break
+    ip link set tap$i master fire0 up 2>/dev/null || sleep 0.1
+done
+
+sleep 1
+systemctl start nftables.service
+```
+
+
+
+
+
+
+Next, to firewall the guests away from each other, do this on the host
+(or better, add it to /etc/nftables.conf, as shown above):
+
+nft add table bridge filter
+nft add chain bridge filter forward '{ type filter hook forward priority 0 ; }'
+nft add rule bridge filter forward iifname "tap*" oifname "tap*" drop
+
+
+
+
+For DHCP (Deprecated!):
+on the host:
+apt install dnsmasq
+
+Edit /etc/dnsmasq.conf:
+interface=fire0
+bind-interfaces
+dhcp-range=10.1.1.100,10.1.1.200,12h
+# default gateway:
+dhcp-option=3,10.1.1.1
+# upstream DNS, if desired.
+dhcp-option=6,8.8.8.8
+
+
+in the guests:
+apt install isc-dhcp-client
+ip link set dev eth0 up
+dhclient eth0
+
+
+
+
