@@ -6,7 +6,7 @@
   "drives": [
     {
       "drive_id": "rootfs",
-      "path_on_host": "/home/francis/a/1007/ub.ext4.100",
+      "path_on_host": "/home/francis/a/1007/nr.ext4.100",
       "is_root_device": true,
       "is_read_only": false
     }
@@ -14,27 +14,13 @@
   "network-interfaces":[
     {
       "iface_id":"eth0",
-      "guest_mac":"aa:fc:00:00:01:64",
+      "guest_mac":"aa:fc:0a:00:00:64",
       "host_dev_name":"tap100"
     }
   ],
   "machine-config": {
     "vcpu_count": 2,
     "mem_size_mib": 1024
-  },
-  "metadata": {
-    "network_config":{
-      "version":2,
-      "ethernets":{
-        "eth0":{
-          "addresses":["10.1.1.100/24"],
-          "gateway4":"10.1.1.1",
-          "nameservers":{
-            "addresses": [ "1.1.1.1","8.8.8.8" ]
-          }
-        }
-      }
-    }
   },
 
   "hostname":"vm-100",
