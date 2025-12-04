@@ -8,7 +8,7 @@ done
 
 [[ ! -d /sys/class/net/fire0 ]] && { echo "fire0 never appeared"; exit 1; }
 
-for i in {100..199}; do
+for i in {0..64}; do
     ip tuntap add dev tap$i mode tap user francis 2>/dev/null || break
     ip link set tap$i master fire0 up 2>/dev/null || sleep 0.1
 done
