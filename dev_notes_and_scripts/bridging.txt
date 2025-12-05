@@ -1,6 +1,14 @@
 
 ## FOR setting up bridges and taps on a firecracker host
 
+
+05Dec25: There is a lot of stuff in this file which captures the twisted journey
+I took to get bridging to work securely with firecracker guests.
+This is a rolling archive and a lot of this material is obsoleted by subsequent
+work. A TODO is to collect all the known-good stuff at the top of the file.
+
+
+
 This method keeps the main network interface out of the bridge
 and uses masquerading so the guests all appear on the LAN with the
 MAC address of the main interface.
@@ -90,6 +98,12 @@ Well, THAT breaks firecracker. So for now the answer is:
 - enable docker
 - run create_taps.sh (which starts nftables) after the multi-user target in systemd.
 That makes firecracker forwarding and masquerading work, but it blocks docker.
+
+On further consideration, the easier path is to forego nftables and step back to iptables.
+The following rules work and don't kill docker:
+  iptables -t nat -A POSTROUTING -o eno1 -s 10.1.1.0/16 -j MASQUERADE
+  iptables -A FORWARD -i fire0 -o eno1 -j ACCEPT
+  iptables -A FORWARD -i eno1 -o fire0 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
 
 
@@ -213,6 +227,26 @@ apt install isc-dhcp-client
 ip link set dev eth0 up
 dhclient eth0
 
+
+
+
+# Using iptables to block traffic from one guest to another.
+
+05Dec25
+To prevent traffic from crossing the bridge from one guest to another,
+the only thing needed is:
+  sudo modprobe br_netfilter
+This has the effect of causing bridge traffic to pass through iptables, which
+it otherwise DOES NOT, so it gets trapped by the default FORWARD DROP policy.
+
+The following settings are also required to obtain this behavior, but they
+appear to be defaults:
+  sudo sysctl -w net.bridge.bridge-nf-call-iptables=1
+  sudo sysctl -w net.bridge.bridge-nf-call-ip6tables=1
+  sudo sysctl -w net.bridge.bridge-nf-call-arpables=1
+
+None of this impacts docker, because docker sets up its own forwarding rules
+that allow traffic from containers to the rest of the network.
 
 
 
