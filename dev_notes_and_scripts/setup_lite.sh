@@ -16,6 +16,10 @@ apt install -y iproute2 iputils-ping telnet netcat-openbsd vim
 apt install -y cloud-init cloud-initramfs-growroot
 
 
+echo "127.0.0.1 localhost" > /etc/hosts
+apt install -y apt-utils
+apt install -y openssh-server
+
 # Don't use dhcp in the guest.
 #echo "isc-dhcp-client isc-dhcp-client/run-dhclient boolean false" | debconf-set-selections
 #DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends isc-dhcp-client
@@ -38,7 +42,6 @@ echo "ubuntu:ubuntu" | chpasswd
 #ln -s /etc/systemd/system/fcnet.service /etc/systemd/system/multi-user.target.wants/fcnet.service
 
 #echo "nameserver 8.8.8.8" > /etc/resolv.conf
-echo "127.0.0.1 localhost" > /etc/hosts
 
 
 SCRIPT_PATH="/usr/local/bin/setupnetwork.sh"
