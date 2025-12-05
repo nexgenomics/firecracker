@@ -1,5 +1,5 @@
 
-## FOR setting up bridges and taps on a firecracker host
+## How to set up a firecracker host
 
 
 05Dec25: There is a lot of stuff in this file which captures the twisted journey
@@ -11,21 +11,20 @@ work. A TODO is to collect all the known-good stuff at the top of the file.
 
 This method keeps the main network interface out of the bridge
 and uses masquerading so the guests all appear on the LAN with the
-MAC address of the main interface.
+MAC and IP addresses of the main interface.
 It depends on forwarding between the bridge and the hardware NIC.
 
 It does NOT depend on enslaving the NIC to the bridge. *DO NOT* take
 the advice that is out there to enslave the NIC to the bridge.
 
+
+
 ### The bridge
 
 We put a /16 subnet on the bridge to enable a target of up to 1000 guests.
 
-ip link add fire0 type bridge
-ip addr add 10.0.0.1/16 dev fire0
-ip link set fire0 up
-
-Even better, put this in the netplan file under network:
+The best way to do this is via netplan. Add the following yaml under the
+network keyword:
   bridges:
     fire0:
       parameters:
@@ -33,6 +32,91 @@ Even better, put this in the netplan file under network:
         forward-delay: 0
       addresses:
       - 10.0.0.1/16
+
+The following also works:
+  ip link add fire0 type bridge
+  ip addr add 10.0.0.1/16 dev fire0
+  ip link set fire0 up
+
+
+### Nftables
+
+It would be wonderful to use nftables instead of iptables, but we're
+stuck because Docker uses legacy iptables, and we want to stay compatible
+in the sense that a firecracker host can run docker containers with
+network access.
+
+According to lore, Docker/iptables can coexist with nftables but I never
+figured out the right magic words, and life is too short.
+
+So as of now, nftables is disabled. Since this isn't the default, say:
+
+  # systemctl disable nftables.service
+
+
+
+
+### Taps
+
+Each guest VM is associated with a network tap. The taps do not take
+IP addresses, and they are enslaved to the fire0 bridge.
+
+We're hoping for a healthy maximum of 64 guests per host (that might
+grow later), so we need to create at least that many taps.
+
+We have a script here named create_taps.sh. Run this script under systemd
+after the multi-user.target completes.
+
+Each tap has a unique name in the form tapXXX, where XXX is a "slot number."
+Slots are integers starting from zero.
+
+The create_taps.sh script is dependent on the presence of the fire0 bridge,
+which is created by netplan. So there's a little timing loop in create_taps.sh
+that waits for fire0 to exist before it starts creating the taps.
+
+
+### Filtering and forwarding setup (iptables)
+
+This setup is done in create_taps.sh, after the taps are created. Figuring
+all this out was cursed, so be appreciative of the effort.
+
+What we want is for each guest VM to have an IP address in the bridge's subnet
+(10.0.0.0/16), and for the guests to access the local network environment
+by masquerading through the main NIC of the host machine.
+
+We also want the guests to be inaccesible from the network and from each other.
+We do want them to be able to make connections out to the network.
+
+Here's how to set all this up in iptables (assuming that the hardware NIC is eno1):
+
+  # modprobe br_netfilter
+  # sysctl -w net.bridge.bridge-nf-call-iptables=1
+  # sysctl -w net.bridge.bridge-nf-call-ip6tables=1
+  # sysctl -w net.bridge.bridge-nf-call-arpables=1
+  # iptables -t nat -A POSTROUTING -o eno1 -s 10.0.0.0/16 -j MASQUERADE
+  # iptables -A FORWARD -i fire0 -o eno1 -j ACCEPT
+  # iptables -A FORWARD -i eno1 -o fire0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+It's actually pretty simple, considering what it took to figure out.
+The br_netfilter is subtle. It's not enabled by default, but modprobing it
+is all it takes to enable it.
+
+And what does it do? Very simple. It routes all intra-bridge traffic through iptables.
+
+Since the default iptables policy for FORWARD is DROP, simply enabling br_netfilter
+has the effect of blocking all traffic between the guest VMs, because the traffic
+looks like move among the taps enslaved to the bridge.
+
+Next, we masquerade all traffic from the bridge through the main NIC.
+
+And we enable forwarding from the bridge (hence the taps) to and from the main NIC.
+
+
+And this is most of what you need to know. Below is historical information that may
+be of some interest.
+
+
+-------------------------------------------------------------------
 
 
 ### Forwarding needed
