@@ -1,5 +1,7 @@
 #!/bin/bash
 # /usr/local/bin/create-firecracker-taps.sh
+# This script runs under systemd and creates tap interfaces
+
 for try in {1..30}; do
     [[ -d /sys/class/net/fire0 ]] && break
     echo "Waiting for fire0 to appear ($try/30)..."
@@ -13,5 +15,5 @@ for i in {0..64}; do
     ip link set tap$i master fire0 up 2>/dev/null || sleep 0.1
 done
 
-sleep 1
-systemctl start nftables.service
+#sleep 1
+#systemctl start nftables.service
