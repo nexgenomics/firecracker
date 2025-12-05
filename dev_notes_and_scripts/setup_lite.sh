@@ -16,6 +16,8 @@ apt install -y iproute2 iputils-ping telnet netcat-openbsd vim
 apt install -y cloud-init cloud-initramfs-growroot
 
 
+# This doesn't survive the reboot but we want it in place for the
+# ssh install. The in-guest setup script will re-set it later.
 echo "127.0.0.1 localhost" > /etc/hosts
 apt install -y apt-utils
 apt install -y openssh-server
@@ -75,6 +77,7 @@ ip addr flush dev "$INTERFACE" 2>/dev/null
 ip addr add "$IP/16" dev "$INTERFACE"
 ip link set "$INTERFACE" up
 ip ro add default via 10.0.0.1
+echo "127.0.0.1 localhost" > /etc/hosts
 EOF
 
 chmod +x "$SCRIPT_PATH"
