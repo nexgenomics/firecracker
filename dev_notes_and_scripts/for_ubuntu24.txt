@@ -2,6 +2,8 @@
 FOR building a ubuntu image that runs in firecracker.
 This is a little obsolete, see also setup_lite.sh
 
+use docker cp to get setup_lite.sh into the running ubuntu container,
+then run it inside the container.
 
 
 [leaves it running; do stuff then exit]
