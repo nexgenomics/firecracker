@@ -81,6 +81,18 @@ Also, there doesn't seem to be any problem with invoking systemctl start from wi
 a script that was invoked by systemd. So that's the answer.
 
 
+
+95Dec25: More on the above: this approach interacts with docker in very strange ways.
+The setup as described appears to work, but it BLOCKS Docker containers from reaching
+the internet. Nothing I tried would solve that problem, so I just disabled docker.
+Well, THAT breaks firecracker. So for now the answer is:
+- disable nftables
+- enable docker
+- run create_taps.sh (which starts nftables) after the multi-user target in systemd.
+That makes firecracker forwarding and masquerading work, but it blocks docker.
+
+
+
 ### Kvm
 
 Since we want to run firecracker as an unprivileged user, ensure the unpriv
