@@ -8,3 +8,7 @@ A place for notes and scripts being developed, prior to them being moved to more
 locations within this repo.
 
 
+### guest_daemon
+
+Runs inside each guest and is installed when converting a source docker image to a guest image.
+
