@@ -49,14 +49,6 @@ echo "ubuntu:ubuntu" | chpasswd
 SCRIPT_PATH="/usr/local/bin/setupnetwork.sh"
 SERVICE_NAME="setupnetwork.service"
 
-# --- 1. Create the startup script ---
-#cat << 'EOF' | tee "$SCRIPT_PATH" > /dev/null
-##!/bin/bash
-#echo "Running startup script..."
-#ip link set dev eth0 up
-#dhclient eth0
-#EOF
-
 # shell MUST be bash because of the substitutions used
 cat << 'EOF' | tee "$SCRIPT_PATH" > /dev/null
 #!/bin/bash
@@ -97,9 +89,41 @@ WantedBy=multi-user.target
 EOF
 
 # --- 3. Enable the service ---
-systemctl daemon-reload
+# systemctl daemon-reload (fails in a docker container)
 systemctl enable "$SERVICE_NAME"
 
 echo "Service $SERVICE_NAME created and enabled."
 echo "Startup script located at $SCRIPT_PATH"
+
+
+
+
+
+
+
+
+# setup the guest daemon
+
+GUEST_DAEMON_SERVICE_NAME="guestdaemon.service"
+cat << EOF | tee "/etc/systemd/system/$GUEST_DAEMONSERVICE_NAME" > /dev/null
+[Unit]
+Description=Guest Daemon Service
+After=setupnetwork.service
+Requires=setupnetwork.service
+
+[Service]
+ExecStart=/usr/local/bin/guest_daemon
+Restart=always
+RestartSec=1
+StopSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable "$GUEST_DAEMON_SERVICE_NAME"
+
+
+
+
 
