@@ -105,7 +105,7 @@ echo "Startup script located at $SCRIPT_PATH"
 # setup the guest daemon
 
 GUEST_DAEMON_SERVICE_NAME="guestdaemon.service"
-cat << EOF | tee "/etc/systemd/system/$GUEST_DAEMONSERVICE_NAME" > /dev/null
+cat << EOF | tee "/etc/systemd/system/$GUEST_DAEMON_SERVICE_NAME" > /dev/null
 [Unit]
 Description=Guest Daemon Service
 After=setupnetwork.service
