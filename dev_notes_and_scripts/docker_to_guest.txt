@@ -1,0 +1,61 @@
+# How to convert a customer app into a guest.
+
+
+Customer apps come to us as docker containers.
+Enabling them to run as guests entails adding software and config to the
+user's docker contents, and exporting it to a root filesystem image that
+the firecracker system can run as a guest.
+
+Once we have that image, it is further slightly configured for each agent
+instantiation.
+
+Here are the steps:
+
+### Load the docker image
+
+Eventually customers will upload their images into a custom registry analogous
+to Amazon ECS. We access it from there.
+
+### Run a container from the docker image.
+
+  # docker run --name lab_rat -it --entrypoint "" xxxxx /bin/bash
+
+The magic trick here is the entrypoint clause, which runs the image without
+starting up the user's app. We just want the disk contents.
+
+### Copy software into the running container.
+
+  # docker cp setup_lite.sh lab_rat:/tmp
+  # docker cp guest_daemon lab_rat:/tmp
+
+### Do the setup
+
+Inside the running container:
+  # /tmp/setup_lite.sh
+  # rm /tmp/setup_lite.sh
+  # mv /tmp/guest_daemon /usr/local/bin
+
+
+  (/.ngen/id goes in the agent instance)
+
+
+### Make a root filesystem
+
+Exit the container's bash shell, which leaves it stopped but still extant as a docker container.
+
+  # docker export labrat > labrat.tar
+  # mkdir labrat
+  # tar xf labrat.tar -C labrat
+  # sudo chown -R root:root labrat/*
+  # sudo mke2fs -t ext4 -L labrat -d labrat -E lazy_itable_init=0,lazy_journal_init=0,packed_meta_blocks=1 labrat.ext4 2G
+  # docker rm labrat
+
+Now the guest filesystem is in labrat.ext4. Archive it somehow that is associated with the agent image ID.
+
+
+### Hiring an agent from the guest filesystem
+
+The root filesystem needs to be personalized for each agent instantiated from it.
+Make a simple copy of the root filesystem, mount it, and edit /.ngen/.id which is a JSON file.
+Personalize it with the host id, agent id, slot number, and the nats server url.
+
