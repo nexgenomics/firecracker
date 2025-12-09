@@ -124,6 +124,28 @@ EOF
 systemctl enable "$GUEST_DAEMON_SERVICE_NAME"
 
 
+# setup the identity file (needs to be edited for each instance)
+# Leave this in for now although it's not currently used.
+# Personalizing it per-agent is a pain because of the need to mount
+# it loopback.
+# The agent-id value and slot number are passed in through firecracker
+# as Linux boot parameter, and the other parms aren't as critical
+
+mkdir -p /.ngen
+cat << EOF | tee "/.ngen/.id" > /dev/null
+{
+ "host":"1000",
+ "agent":"1000",
+ "slot":1000,
+ "nats-server":"nats://192.168.0.225:4222"
+}
+EOF
+
+
+
+
+
+
 
 
 
