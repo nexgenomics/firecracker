@@ -26,17 +26,33 @@ starting up the user's app. We just want the disk contents.
 ### Copy software into the running container.
 
   # docker cp setup_lite.sh lab_rat:/tmp
-  # docker cp guest_daemon lab_rat:/tmp
+  # docker cp guest_daemon lab_rat:/usr/local/bin
+
+If desired (usually), copy an SSH public key into the image. There's one in
+fetaburger:FIRECRACKER. Someday this should become more structured, such as by
+allowing the guest_daemon to receive and install an authorized key, but that
+has to be done carefully to avoid opening up the surface.
 
 ### Do the setup
 
 Inside the running container:
   # /tmp/setup_lite.sh
   # rm /tmp/setup_lite.sh
-  # mv /tmp/guest_daemon /usr/local/bin
 
 
   (/.ngen/id goes in the agent instance)
+
+
+### Set up the default app.
+
+use docker inspect <the-image> to get the image metadata. It's a JSON array containing an object which
+has several useful things. The Config key is an object with WorkingDir and Entrypoint.
+WorkingDir defaults to "/" and Entrypoint is an array because it's a list of arguments.
+Be wary that in some cases, the Entrypoint array may start with ["/bin/sh","-c",.....].
+
+In the working guest, we have to arrange for the default app to be started by systemd.
+The python script docker_entrypoint.py is intended to do this.
+TODO: Not fully tested or automatically integrated to the workflow!
 
 
 ### Make a root filesystem
@@ -58,4 +74,26 @@ Now the guest filesystem is in labrat.ext4. Archive it somehow that is associate
 The root filesystem needs to be personalized for each agent instantiated from it.
 Make a simple copy of the root filesystem, mount it, and edit /.ngen/.id which is a JSON file.
 Personalize it with the host id, agent id, slot number, and the nats server url.
+
+
+
+### SSH
+
+As currently set up, the guests run an SSH server on port 22, which can be accessed from the firecracker host
+machine. That works because the bridging setup (which uses the kernel module br_netfilter to run bridged
+traffic through iptables) restricts forwarding but permits routing.
+
+So from a shell on the firecracker host, an SSH to a guest machine's IP address (10.0.x.y/16) will work because
+the bridge (10.0.0.1/16) is in the same subnet.
+
+Remember, the IP address of the guest is derivable from the slot number: 10.0.x.y, where x is the slot number / 100
+and y is the (slot number % 100) + 100.
+
+Any machine in the network with access to the firecracker host can use ssh with local port forwarding to reach
+the guest. For example: ssh -L 9999:10.0.0.50:22 192.168.0.194 to open the local port, and then
+ssh -p 9999 root@localhost to get to the guest.
+
+Now observe that the guest WILL NOT accept a cleartext password, so you have to use an identity key.
+That part is not currently automated, but there are some details in this document, in the section on
+setting up software in the guest.
 
