@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/nats-io/nats.go"
+	"github.com/segmentio/kafka-go"
 	"io"
 	"log"
 	"ngen/config"
@@ -29,7 +32,9 @@ var cfg struct {
 }
 
 var (
-	pgres *datamodel.Session
+	pgres                    *datamodel.Session
+	firecracker_log_producer *kafka.Writer
+	nc                       *nats.Conn
 )
 
 // read_config
@@ -66,6 +71,71 @@ func main() {
 		panic(e)
 	}
 
+	firecracker_log_producer = &kafka.Writer{
+		Addr:  kafka.TCP(cfg.Kafka.Brokers[0]),
+		Topic: cfg.Kafka.FirecrackerLogTopic,
+		Async: true,
+	}
+	defer firecracker_log_producer.Close()
+
+	var e error
+	nc, e = nats.Connect(fmt.Sprintf("nats://%s:%d", cfg.Nats.Host, cfg.Nats.Port))
+	if e != nil {
+		panic(e)
+	}
+	defer nc.Drain()
+
+	natsCh := make(chan *nats.Msg, 64)
+	sub, e := nc.ChanSubscribe(fmt.Sprintf("firecracker.host.%s", cfg.Firecracker.HostId), natsCh)
+	if e != nil {
+		panic(e)
+	}
+	defer sub.Unsubscribe()
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg := <-natsCh:
+			go process_msg(msg)
+		case <-ticker.C:
+			run_guest_lifecycle()
+		}
+	}
+
+	log.Printf("Done")
+	//run_guest_lifecycle()
+
+}
+
+// process_msg runs on a goroutine and receives a message from this host's NATS channel.
+func process_msg(m *nats.Msg) {
+	log.Printf("received %s", string(m.Data))
+	if m.Reply != "" {
+		nc.Publish(m.Reply, []byte("penis"))
+	}
+}
+
+type lifecycle_status struct {
+	Tasks         []string `json:"tasks"`
+	RunningAgents []string `json:"running_agents"`
+}
+
+func new_lifecycle_status() *lifecycle_status {
+	return &lifecycle_status{
+		Tasks:         []string{},
+		RunningAgents: []string{},
+	}
+}
+
+// run_guest_lifecycle should run periodically, like every minute or so.
+// It spins up or shuts down firecracker guests as specified by Postgres's firecracker_slot
+// table, which is authoritative.
+func run_guest_lifecycle() {
+
+	status := new_lifecycle_status()
+
 	// which slots are defined in the database?
 	defined_slots, e := pgres.GetEnabledFirecrackerSlots(cfg.Firecracker.HostId)
 	if e != nil {
@@ -78,7 +148,9 @@ func main() {
 	// which slots are currently running?
 	running_slots, _ := ListFirecrackerProcessesWithID()
 	for _, s := range running_slots {
-		log.Printf("Slot running: %s, %d", s.Agent, s.Slot)
+		agent_slot := fmt.Sprintf("%sZ%d", s.Agent, s.Slot)
+		log.Print(agent_slot)
+		status.RunningAgents = append(status.RunningAgents, agent_slot)
 	}
 
 	// which of the defined slots from the database are not currently running? START THEM.
@@ -91,7 +163,9 @@ func main() {
 			}
 		}
 		if !runs {
-			log.Printf("NEED TO START SLOT %d", m.Slot)
+			status_line := fmt.Sprintf("NEED TO START SLOT %d", m.Slot)
+			log.Print(status_line)
+			status.Tasks = append(status.Tasks, status_line)
 			if e := start_vm(&m); e != nil {
 				log.Printf("failed to start slot %d, %s", m.Slot, e)
 			}
@@ -108,11 +182,23 @@ func main() {
 			}
 		}
 		if !defined {
-			log.Printf("NEED TO STOP SLOT %d", m.Slot)
+			status_line := fmt.Sprintf("NEED TO STOP SLOT %d", m.Slot)
+			log.Print(status_line)
+			status.Tasks = append(status.Tasks, status_line)
 			if e := stop_vm(&m); e != nil {
 				log.Printf("failed to stop slot %d, %s", m.Slot, e)
 			}
 		}
+	}
+
+	// Now write a status entry
+	j, _ := json.MarshalIndent(status, "", " ")
+	msg := kafka.Message{
+		Key:   []byte(cfg.Firecracker.HostId),
+		Value: j,
+	}
+	if e := firecracker_log_producer.WriteMessages(context.Background(), msg); e != nil {
+		log.Printf("? %s", e)
 	}
 }
 
@@ -268,7 +354,7 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 	// TODO, THERE ARE HARDCODES HERE!!! ALSO, REPORT ERRORS OUT
 	_, _, _, _ = CurlPutJSONMap("http://localhost/boot-source", api_sock, map[string]any{
 		"kernel_image_path": "/home/francis/FIRECRACKER/vmlinux-6.1.141",
-		"boot_args":         fmt.Sprintf("reboot=k panic=1 agent=%s slot=%d", slot.Agent, slot.Slot),
+		"boot_args":         fmt.Sprintf("reboot=k panic=1 agent=%s tenant=0 slot=%d", slot.Agent, slot.Slot),
 	})
 	_, _, _, _ = CurlPutJSONMap("http://localhost/drives/rootfs", api_sock, map[string]any{
 		"drive_id":       "rootfs",
