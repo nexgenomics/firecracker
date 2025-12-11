@@ -12,24 +12,45 @@ import (
 )
 
 var (
-	agent_id  string
-	tenant_id string = "0"
-	nats_url  string = "nats://192.168.0.225:4222"
+	agent_id             string
+	tenant_id            string = "0"
+	nats_url             string = "nats://192.168.0.225:4222"
+	persist_dir          string
+	highest_persist_file string
 
 	nc     *nats.Conn
 	js     nats.JetStreamContext
 	subscr *nats.Subscription
 
-	MAX_PERSISTS         = 100
-	PERSIST_DIR          = "/tmp" // MUST CHANGE TO /opt or similar
-	PERSIST_PATTERN      = "as-*.bin"
-	HIGHEST_PERSIST_FILE = "/tmp/highest_persist"
+	MAX_PERSISTS    = 100
+	PERSIST_PATTERN = "as-*.bin"
 )
+
+// setup_persist_dir tries to set up a filesystem location for storing locally-persisted
+// sentences. The idea is that a system daemon retrieves sentences from a nats durable stream
+// and stores them on the local filesystem for retrieval by user code. This insulates the
+// nats facility from user code.
+// We support an env string for testing, which is usually /tmp.
+// The MkdirAll call works like mkdir -p. There's no error if the directory exists,
+// and an error if it can't create it.
+// We create the dir with wide permissions so user code can access it.
+func setup_persist_dir() error {
+	persist_dir = os.Getenv("PERSIST_DIR")
+	if persist_dir == "" {
+		persist_dir = "/opt/agentsentences"
+	}
+	highest_persist_file = fmt.Sprintf("%s/highest_persisted_sequence", persist_dir)
+	return os.MkdirAll(persist_dir, 0777)
+}
 
 // main
 func main() {
 
 	log.Printf("Guest Sentences")
+
+	if e := setup_persist_dir(); e != nil {
+		panic(e)
+	}
 
 	if e := read_config(); e != nil {
 		log.Fatal(e)
@@ -159,7 +180,7 @@ func get_a_message() {
 // get_highest_persist reads a file containing the stream-sequence number
 // of the last message to be persisted.
 func get_highest_persist() (out uint64) {
-	if d, e := os.ReadFile(HIGHEST_PERSIST_FILE); e == nil {
+	if d, e := os.ReadFile(highest_persist_file); e == nil {
 		s := strings.TrimSpace(string(d))
 		out, _ = strconv.ParseUint(s, 10, 64)
 	}
@@ -170,17 +191,17 @@ func get_highest_persist() (out uint64) {
 func persist_msg(seq uint64, data []byte) {
 	seqstr := fmt.Sprintf("%020d", seq)
 
-	fp := filepath.Join(PERSIST_DIR, fmt.Sprintf("as-%s.bin", seqstr))
+	fp := filepath.Join(persist_dir, fmt.Sprintf("as-%s.bin", seqstr))
 	os.WriteFile(fp, data, 0600)
 
-	os.WriteFile(HIGHEST_PERSIST_FILE, []byte(seqstr), 0600)
+	os.WriteFile(highest_persist_file, []byte(seqstr), 0600)
 	log.Printf("persisted %s", fp)
 }
 
 // get_n_persists counts the number of messages that we have stored locally
 // and are pending processing by user code. Limiting this is a form of backpressure.
 func get_n_persists() int {
-	glob := filepath.Join(PERSIST_DIR, PERSIST_PATTERN)
+	glob := filepath.Join(persist_dir, PERSIST_PATTERN)
 	if matches, e := filepath.Glob(glob); e == nil {
 		return len(matches)
 	} else {
