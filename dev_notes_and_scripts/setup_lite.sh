@@ -124,6 +124,31 @@ EOF
 systemctl enable "$GUEST_DAEMON_SERVICE_NAME"
 
 
+# setup the guest-sentences daemon
+
+GUEST_SENTENCES_SERVICE_NAME="guestsentences.service"
+cat << EOF | tee "/etc/systemd/system/$GUEST_SENTENCES_SERVICE_NAME" > /dev/null
+[Unit]
+Description=Guest Sentences Service
+After=setupnetwork.service
+Requires=setupnetwork.service
+
+[Service]
+ExecStart=/usr/local/bin/guest_sentences
+Restart=always
+RestartSec=1
+StopSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable "$GUEST_SENTENCES_SERVICE_NAME"
+
+
+
+
+
 # setup the identity file (needs to be edited for each instance)
 # Leave this in for now although it's not currently used.
 # Personalizing it per-agent is a pain because of the need to mount
