@@ -95,6 +95,8 @@ func main() {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
+	run_guest_lifecycle()
+
 	for {
 		select {
 		case msg := <-natsCh:
