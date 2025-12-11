@@ -27,6 +27,7 @@ starting up the user's app. We just want the disk contents.
 
   # docker cp setup_lite.sh lab_rat:/tmp
   # docker cp guest_daemon lab_rat:/usr/local/bin
+  # docker cp guest_sentences lab_rat:/usr/local/bin
 
 If desired (usually), copy an SSH public key into the image. There's one in
 fetaburger:FIRECRACKER. Someday this should become more structured, such as by
