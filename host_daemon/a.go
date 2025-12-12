@@ -12,7 +12,8 @@ package main
  * That means the individual guests, which are controlled by a running
  * firecracker process, are and remain child processes of this daemon.
  * Damonizing would have been cleaner, but it's a pain in Go.
- * We may need to revisit this someday.
+ * Therefore, this process needs to stay up and running. If it crashes,
+ * the guests are all gone.
  */
 
 import (
