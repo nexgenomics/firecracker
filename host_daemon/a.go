@@ -370,6 +370,7 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 		log.Printf("FAILED to start firecracker, %s", e)
 		return e
 	}
+	go c.Wait() // otherwise we get zombies
 
 	// TODO, REPORT ERRORS OUT
 	_, _, _, _ = CurlPutJSONMap("http://localhost/boot-source", api_sock, map[string]any{
