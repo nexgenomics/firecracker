@@ -4,6 +4,15 @@ package main
  * It manages a local fleet of firecracker guests running agents.
  * It has to run as a systemd daemon because it needs privileged
  * access to system resources, so docker isn't a good choice.
+ *
+ * We manage the runtimes of firecracker guests, which are invoked
+ * via the firecracker binary in conjunction with a unix-domain
+ * socket.
+ * This is important: WE DO NOT daemonize the guests!
+ * That means the individual guests, which are controlled by a running
+ * firecracker process, are and remain child processes of this daemon.
+ * Damonizing would have been cleaner, but it's a pain in Go.
+ * We may need to revisit this someday.
  */
 
 import (
@@ -35,7 +44,7 @@ var cfg struct {
 		UnixSocketPrefix  string `json:"unix-socket-prefix"`
 
 		RootFilesystemDir string `json:"root-fs-dir"`
-		VmlinuxLocation string `json:"vmlinux-location"`
+		VmlinuxLocation   string `json:"vmlinux-location"`
 	} `json:"firecracker"`
 }
 
@@ -66,7 +75,6 @@ func main() {
 	}
 
 	log.Printf("Firecracker host daemon id: %s", cfg.Firecracker.HostId)
-
 
 	if s, e := datamodel.New(&datamodel.Config{
 		Host:   cfg.Db.Host,
@@ -349,6 +357,7 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 	}
 
 	api_sock := fmt.Sprintf("%s.%d", cfg.Firecracker.UnixSocketPrefix, slot.Slot)
+	os.Remove(api_sock) // this is for safety in case we left a zombie on a prior run
 	log.Printf("Starting agent %s, slot %d, socket %s, rootfs %s", slot.Agent, slot.Slot, api_sock, rootfs_file)
 
 	args := []string{
@@ -358,12 +367,15 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 	}
 	log.Printf("Invoking %s", args)
 
+	// THIS IS GOOD: It runs the firecracker as a non-detached child process
 	c := exec.Command(args[0], args[1:]...)
 	c.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
 	}
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
+	//c.Stdout = os.Stdout
+	//c.Stderr = os.Stderr
+	c.Stdout, _ = os.Open(os.DevNull)
+	c.Stderr, _ = os.Open(os.DevNull)
 	c.Stdin = nil
 
 	if e := c.Start(); e != nil {
@@ -372,6 +384,29 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 	}
 	go c.Wait() // otherwise we get zombies
 
+	// This attempts to run the firecracker as a fully-detached daemon process.
+	// But it doesn't work.
+	/*
+		c := exec.Command(args[0], args[1:]...)
+		c.SysProcAttr = &syscall.SysProcAttr{
+			Setsid: true,
+		}
+		c.Stdout = os.NewFile(uintptr(syscall.Stdout), os.DevNull)
+		c.Stderr = os.NewFile(uintptr(syscall.Stderr), os.DevNull)
+		c.Stdin = nil
+
+		if e := c.Start(); e != nil {
+			log.Printf("FAILED to start daemon firecracker, %s", e)
+			return e
+		}
+		if e := c.Process.Release(); e != nil {
+			log.Printf("FAILED to release daemon firecracker, %s", e)
+			return e
+		}
+		log.Printf ("Started firecracker daemon, pid %d, slot %s", c.Process.Pid, slot.Slot)
+	*/
+
+	// Now start the guest inside the new firecracker
 	// TODO, REPORT ERRORS OUT
 	_, _, _, _ = CurlPutJSONMap("http://localhost/boot-source", api_sock, map[string]any{
 		"kernel_image_path": cfg.Firecracker.VmlinuxLocation,
@@ -478,7 +513,6 @@ func discover_running_slots() []RunningSlot {
 	return sockets
 }
 */
-
 
 // decompose_firecracker_id takes the returned output from a curl status-request to
 // a running firecracker instance (which it returns through its unix-domain socket interface),
