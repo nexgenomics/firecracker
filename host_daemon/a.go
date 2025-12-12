@@ -101,7 +101,9 @@ func main() {
 	}
 	defer sub.Unsubscribe()
 
-	ticker := time.NewTicker(60 * time.Second)
+	// This is too frequently to be hitting postgres.
+	// Improve the fanout someday by caching this in a Nats subject.
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
 	run_guest_lifecycle()
