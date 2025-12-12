@@ -1,0 +1,37 @@
+[Unit]
+Description=NexGenomics Firecracker Host Daemon
+After=network.target
+
+[Service]
+# Path to your binary
+ExecStart=/home/francis/NEXGENOMICS/firecracker/host_daemon/host_daemon
+
+# Environment variables (inline)
+Environment="FIRECRACKER_CONF=/home/francis/NEXGENOMICS/firecracker/host_daemon/ngen.json"
+
+# Or load variables from a file
+# Make sure the file has VAR=value lines without quotes
+#EnvironmentFile=/etc/myservice/myservice.env
+
+# Restart the service on failure
+Restart=on-failure
+RestartSec=5
+
+# Optional: give the service its own working directory
+WorkingDirectory=/home/francis/FIRECRACKER
+
+# Ensure the service has its own user (recommended)
+User=francis
+Group=francis
+
+# Automatically collect stdout/stderr in journald
+StandardOutput=journal
+StandardError=journal
+
+# If the binary needs capabilities or resource limits, you can add:
+# LimitNOFILE=65536
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+

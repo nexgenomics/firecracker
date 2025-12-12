@@ -1,5 +1,11 @@
 package main
 
+/* This is a daemon for firecracker hosts.
+ * It manages a local fleet of firecracker guests running agents.
+ * It has to run as a systemd daemon because it needs privileged
+ * access to system resources, so docker isn't a good choice.
+ */
+
 import (
 	"bytes"
 	"context"
@@ -27,7 +33,9 @@ var cfg struct {
 		HostId            string `json:"host-id"`
 		FirecrackerBinary string `json:"firecracker-binary"`
 		UnixSocketPrefix  string `json:"unix-socket-prefix"`
+
 		RootFilesystemDir string `json:"root-fs-dir"`
+		VmlinuxLocation string `json:"vmlinux-location"`
 	} `json:"firecracker"`
 }
 
@@ -58,6 +66,7 @@ func main() {
 	}
 
 	log.Printf("Firecracker host daemon id: %s", cfg.Firecracker.HostId)
+
 
 	if s, e := datamodel.New(&datamodel.Config{
 		Host:   cfg.Db.Host,
@@ -274,6 +283,12 @@ func get_or_create_rootfs(slot *datamodel.FirecrackerSlot) (string, error) {
 
 	return rootfsfile, nil
 
+	// There has been thought of mounting and personalizing the newly-cloned
+	// agent image but it's a real pain in Go. So for now, we define there
+	// to be no customizations required.
+	// If we ever have to do it, probably use bash or python, but have it be
+	// outside of this workflow.
+
 	/*
 		// next, ensure a temporary mount point.
 		if e := os.MkdirAll ("/tmp/mnt", 0755); e != nil {
@@ -292,7 +307,8 @@ func get_or_create_rootfs(slot *datamodel.FirecrackerSlot) (string, error) {
 	return "", fmt.Errorf("unim")
 }
 
-// copyFile
+// copyFile fills the gap in the Go standard libraries. For no reason I can understand,
+// they made a concious decision not to offer os.CopyFile.
 func copyFile(src, dst string) error {
 	// Open source file
 	in, err := os.Open(src)
@@ -353,9 +369,9 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 		return e
 	}
 
-	// TODO, THERE ARE HARDCODES HERE!!! ALSO, REPORT ERRORS OUT
+	// TODO, REPORT ERRORS OUT
 	_, _, _, _ = CurlPutJSONMap("http://localhost/boot-source", api_sock, map[string]any{
-		"kernel_image_path": "/home/francis/FIRECRACKER/vmlinux-6.1.141",
+		"kernel_image_path": cfg.Firecracker.VmlinuxLocation,
 		"boot_args":         fmt.Sprintf("reboot=k panic=1 agent=%s tenant=0 slot=%d", slot.Agent, slot.Slot),
 	})
 	_, _, _, _ = CurlPutJSONMap("http://localhost/drives/rootfs", api_sock, map[string]any{
@@ -401,6 +417,7 @@ func generate_guest_mac(slot int) string {
 	return mac
 }
 
+/*
 type RunningSlot struct {
 	Agent string
 	Slot  int
@@ -457,6 +474,8 @@ func discover_running_slots() []RunningSlot {
 
 	return sockets
 }
+*/
+
 
 // decompose_firecracker_id takes the returned output from a curl status-request to
 // a running firecracker instance (which it returns through its unix-domain socket interface),
