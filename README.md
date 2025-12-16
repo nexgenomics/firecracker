@@ -26,3 +26,9 @@ The intent is that these functions can be called from Python, Rust or Go.
 There is a parallel library exposing the same functions, intended for use by agents running
 outside the nexgenomics infrastructure, and these work by calling REST APIs.
 TODO, this needs a better name.
+
+### nats_rest
+
+framework for implementing a REST API server fronted by NATS with an upstream HTTP facade.
+This is EXPERIMENTAL here, and will probably need to move to the NEXGENOMICS/go repo.
+
