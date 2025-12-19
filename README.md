@@ -11,6 +11,7 @@ locations within this repo.
 ### guest_daemon
 
 Runs inside each guest and is installed when converting a source docker image to a guest image.
+This is probably OBSOLETE. It doesn't currently do anything but run a non-functional NATS subscriber.
 
 ### guest_sentences
 
