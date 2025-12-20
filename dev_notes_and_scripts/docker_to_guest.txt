@@ -70,6 +70,9 @@ Exit the container's bash shell, which leaves it stopped but still extant as a d
 Now the guest filesystem is in labrat.ext4. Archive it somehow that is associated with the agent image ID.
 
 
+### Storing filesystem images under the host_daemon roots/ subdirectory.
+
+
 ### Hiring an agent from the guest filesystem
 
 The root filesystem needs to be personalized for each agent instantiated from it.
