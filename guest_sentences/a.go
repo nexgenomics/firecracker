@@ -124,11 +124,14 @@ func pull_subscribe() error {
 	stream := "AGENT_SENTENCES"
 	filter := fmt.Sprintf("agent.sentences.%s.%s", tenant_id, agent_id)
 
+	last_persisted := get_highest_persist()
+
 	var e error
 	subscr, e = js.PullSubscribe(
 		filter,
 		"",
 		nats.BindStream(stream),
+		nats.StartSequence (last_persisted),
 		nats.InactiveThreshold(20*time.Minute),
 	)
 
@@ -178,7 +181,8 @@ func get_a_message() {
 }
 
 // get_highest_persist reads a file containing the stream-sequence number
-// of the last message to be persisted.
+// of the last message to be persisted. If there is no last-persisted sequence,
+// the return value is 0.
 func get_highest_persist() (out uint64) {
 	if d, e := os.ReadFile(highest_persist_file); e == nil {
 		s := strings.TrimSpace(string(d))
