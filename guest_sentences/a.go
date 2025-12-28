@@ -255,14 +255,14 @@ func get_highest_persist() (out uint64) {
 	return
 }
 
-// persist_msg
+// persist_msg writes a message as a file with wide permissions so user code can read and delete it.
 func persist_msg(seq uint64, data []byte) {
 	seqstr := fmt.Sprintf("%020d", seq)
 
 	fp := filepath.Join(persist_dir, fmt.Sprintf("as-%s.bin", seqstr))
-	os.WriteFile(fp, data, 0600)
+	os.WriteFile(fp, data, 0666)
 
-	os.WriteFile(highest_persist_file, []byte(seqstr), 0600)
+	os.WriteFile(highest_persist_file, []byte(seqstr), 0666)
 	log.Printf("persisted %s", fp)
 }
 
