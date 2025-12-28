@@ -135,7 +135,7 @@ func main() {
 func process_msg(m *nats.Msg) {
 	log.Printf("received %s", string(m.Data))
 	if m.Reply != "" {
-		nc.Publish(m.Reply, []byte("penis"))
+		nc.Publish(m.Reply, []byte("why did you call me?"))
 	}
 }
 
@@ -318,7 +318,7 @@ func get_or_create_rootfs(slot *datamodel.FirecrackerSlot) (string, error) {
 	return "", fmt.Errorf("unim")
 }
 
-// copyFile fills the gap in the Go standard libraries. For no reason I can understand,
+// copyFile fills a gap in the Go standard libraries. For no reason I can understand,
 // they made a concious decision not to offer os.CopyFile.
 func copyFile(src, dst string) error {
 	// Open source file
@@ -430,6 +430,18 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 		"iface_id":      "eth0",
 		"guest_mac":     generate_guest_mac(slot.Slot),
 		"host_dev_name": fmt.Sprintf("tap%d", slot.Slot),
+	})
+	_, _, _, _ = CurlPutJSONMap("http://localhost/mmds/config", api_sock, map[string]any{
+		"version":            "V2",
+		"ipv4_address":       "169.254.169.254",
+		"network_interfaces": []string{"eth0"},
+	})
+	_, _, _, _ = CurlPutJSONMap("http://localhost/mmds", api_sock, map[string]any{
+		"secrets": map[string]any{
+			"nats-server": "nats://192.168.0.225:4222",
+			"tenant":      "0",
+			"agent":       slot.Agent,
+		},
 	})
 	_, _, _, _ = CurlPutJSONMap("http://localhost/actions", api_sock, map[string]any{
 		"action_type": "InstanceStart",
