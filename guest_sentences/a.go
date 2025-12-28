@@ -1,8 +1,21 @@
 package main
 
+/* This root-only process insulates the selkirk sentence stream to firecracker
+ * agents, and leaves them in local files accessible to user (customer) code.
+ *
+ * We use an ephemeral NATS pull consumer, which is complicated and messy.
+ * We do the best we can to minimize the network traffic, apply some backpressure,
+ * and be resilient when the NATS connections drop.
+ *
+ * This thing is tricky enough that we need to be wary of it and anticipate
+ * the need to fix bugs we don't know about yet.
+ */
+
 import (
+	"context"
 	"fmt"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"log"
 	"os"
 	"path/filepath"
@@ -18,9 +31,10 @@ var (
 	persist_dir          string
 	highest_persist_file string
 
-	nc     *nats.Conn
-	js     nats.JetStreamContext
-	subscr *nats.Subscription
+	nc *nats.Conn
+	js jetstream.JetStream // nats.JetStreamContext
+	//subscr *nats.Subscription
+	consumer jetstream.Consumer
 
 	MAX_PERSISTS    = 100
 	PERSIST_PATTERN = "as-*.bin"
@@ -83,7 +97,7 @@ func main() {
 
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
-	tick2 := time.NewTicker(300 * time.Second)
+	tick2 := time.NewTicker(10 * time.Second)
 	defer tick2.Stop()
 
 	for {
@@ -121,26 +135,48 @@ func main() {
 
 // pull_subscribe
 func pull_subscribe() error {
-	stream := "AGENT_SENTENCES"
 	filter := fmt.Sprintf("agent.sentences.%s.%s", tenant_id, agent_id)
-
 	last_persisted := get_highest_persist()
+	// Nats is persnickety about this. 0 gives an error.
 
-	var e error
-	subscr, e = js.PullSubscribe(
-		filter,
-		"",
-		nats.BindStream(stream),
-		nats.StartSequence (last_persisted),
-		nats.InactiveThreshold(20*time.Minute),
-	)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	if e == nil {
-		log.Printf("created pull consumer %v", subscr)
-	} else {
-		subscr = nil
-		log.Printf("failed to create pull consumer %v", e)
+	stream, e := js.Stream(ctx, "AGENT_SENTENCES")
+	if e != nil {
+		log.Printf("%v", e)
+		return e
 	}
+
+	cons, e := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		DeliverPolicy:  jetstream.DeliverByStartSequencePolicy,
+		OptStartSeq:    last_persisted + 1,
+		AckPolicy:      jetstream.AckExplicitPolicy,
+		FilterSubjects: []string{filter},
+	})
+	if e != nil {
+		log.Printf("%v", e)
+		return e
+	}
+
+	consumer = cons
+	return nil
+	/*
+		subscr, e = js.PullSubscribe(
+			filter,
+			"",
+			nats.BindStream(stream),
+			nats.StartSequence (last_persisted),
+			nats.InactiveThreshold(20*time.Minute),
+		)
+
+		if e == nil {
+			log.Printf("created pull consumer %v", subscr)
+		} else {
+			subscr = nil
+			log.Printf("failed to create pull consumer %v", e)
+		}
+	*/
 
 	return e
 }
@@ -153,31 +189,59 @@ func get_a_message() {
 		return
 	}
 
-	msgs, e := subscr.Fetch(5, nats.MaxWait(5*time.Second))
-	if e != nil {
-		log.Printf("%v", e)
-		if e != nats.ErrTimeout {
-			time.Sleep(100 * time.Millisecond)
-		}
-		return
-	}
+	log.Printf("get a message...")
 
 	n_highest := get_highest_persist()
 
-	for _, m := range msgs {
-		// get this done with minimum latency
-		m.Ack()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	m, e := consumer.Next(jetstream.FetchContext(ctx))
+	if e != nil {
+		log.Printf("%v", e)
+		//if e != nats.ErrTimeout {
+		time.Sleep(100 * time.Millisecond)
+		//}
+		return
 	}
 
-	for _, m := range msgs {
-		if md, e := m.Metadata(); e == nil {
-			ss := md.Sequence.Stream
-			if ss > n_highest {
-				// persist and store new highest
-				persist_msg(ss, m.Data)
+	m.Ack()
+	meta, e := m.Metadata()
+	ss := meta.Sequence.Stream
+
+	if ss > n_highest {
+		// persist and store new highest
+		persist_msg(ss, m.Data())
+	}
+
+	log.Printf("%v", ss)
+	/*
+		msgs, e := subscr.Fetch(5, nats.MaxWait(5*time.Second))
+		if e != nil {
+			log.Printf("%v", e)
+			if e != nats.ErrTimeout {
+				time.Sleep(100 * time.Millisecond)
+			}
+			return
+		}
+
+		n_highest := get_highest_persist()
+
+		for _, m := range msgs {
+			// get this done with minimum latency
+			m.Ack()
+		}
+
+		for _, m := range msgs {
+			if md, e := m.Metadata(); e == nil {
+				ss := md.Sequence.Stream
+				if ss > n_highest {
+					// persist and store new highest
+					persist_msg(ss, m.Data)
+				}
 			}
 		}
-	}
+	*/
 }
 
 // get_highest_persist reads a file containing the stream-sequence number
@@ -237,7 +301,7 @@ func connect_nats() (bool, error) {
 
 	var e error
 	if nc, e = nats.Connect(nats_url); e == nil {
-		js, e = nc.JetStream()
+		js, e = jetstream.New(nc) // nc.JetStream()
 	}
 	return true, e
 }
