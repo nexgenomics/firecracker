@@ -54,7 +54,9 @@ func setup_persist_dir() error {
 		persist_dir = "/opt/agentsentences"
 	}
 	highest_persist_file = fmt.Sprintf("%s/highest_persisted_sequence", persist_dir)
-	return os.MkdirAll(persist_dir, 0777)
+	 e := os.MkdirAll(persist_dir, 0777)
+	 os.Chmod (persist_dir, 0777)
+	 return e
 }
 
 // main
