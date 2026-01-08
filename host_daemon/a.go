@@ -411,7 +411,7 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 	// TODO, REPORT ERRORS OUT
 	_, _, _, _ = CurlPutJSONMap("http://localhost/boot-source", api_sock, map[string]any{
 		"kernel_image_path": cfg.Firecracker.VmlinuxLocation,
-		"boot_args":         fmt.Sprintf("reboot=k panic=1 agent=%s tenant=0 slot=%d", slot.Agent, slot.Slot),
+		"boot_args":         fmt.Sprintf("reboot=k panic=1 agent=%s tenant=0 slot=%d nats=%s", slot.Agent, slot.Slot, fmt.Sprintf("nats://%s:%d", cfg.Nats.Host, cfg.Nats.Port)),
 	})
 	_, _, _, _ = CurlPutJSONMap("http://localhost/drives/rootfs", api_sock, map[string]any{
 		"drive_id":       "rootfs",
@@ -438,7 +438,7 @@ func start_vm(slot *datamodel.FirecrackerSlot) error {
 	})
 	_, _, _, _ = CurlPutJSONMap("http://localhost/mmds", api_sock, map[string]any{
 		"secrets": map[string]any{
-			"nats-server": "nats://192.168.0.225:4222",
+			"nats-server": fmt.Sprintf("nats://%s:%d", cfg.Nats.Host, cfg.Nats.Port),
 			"tenant":      "0",
 			"agent":       slot.Agent,
 		},
